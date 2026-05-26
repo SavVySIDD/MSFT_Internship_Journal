@@ -11,7 +11,7 @@
 
 ## 1. Problem Statement
 
-My manager asked me to build a **"Hello World" style AI Agent** as a learning exercise before my main project. The requirements were:
+I tried to build a **"Hello World" style AI Agent** as a learning exercise before my main project. The requirements were:
 
 1. The agent should have a **primary task** (some main work it does)
 2. The agent should also have a **secondary background task** — receiving files on the back, and using rules/patterns to detect anomalies, then **accept or reject** those files
@@ -184,8 +184,9 @@ User types text → Agent sends to Azure → LLM processes → Summary returned 
 ```python
 if sys.platform == "win32":
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+```
 
-Issue 5: File Watcher Race Condition (MAJOR BUG)
+### Issue 5: File Watcher Race Condition (MAJOR BUG)
 
 - Problem: When you echo "text" > file.txt on Windows, the OS creates the file (0 bytes) FIRST, then writes content. The watchdog library detected the file at 0 bytes and rejected it as "empty".
 - Root Cause: Windows file creation is a 2-step process (create → write). Watchdog fires on_created between these steps.
@@ -199,135 +200,151 @@ if os.path.isfile(file_path) and os.path.getsize(file_path) > 0:
 self._processed.add(file_path)
 self.watcher._process_file(file_path)
 
-Issue 6: User Typing Commands in Agent Prompt
+### Issue 6: User Typing Commands in Agent Prompt
 
 - Problem: I was typing echo "text" > file.txt inside the agent's summarizer prompt, expecting it to create files. Instead, the agent treated it as text to summarize.
 - Solution: Need TWO terminals — one running the agent, one for dropping files.
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-7. Workflow — How the Agent Works
+## 7. Workflow — How the Agent Works
 
-Startup Flow:
+### Startup Flow:
 
+```txt
 ┌─────────────────────────────────────────────────────────────┐
-│ python main.py │
+│ python main.py                                             │
 └─────────────────────────────┬───────────────────────────────┘
-│
-▼
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ STEP 1: Initialize Summarizer Agent │
-│ → Connects to Azure AI (or enters mock mode) │
-│ → Creates agent with "summarize text" instructions │
+│ STEP 1: Initialize Summarizer Agent                        │
+│ → Connects to Azure AI (or enters mock mode)               │
+│ → Creates agent with "summarize text" instructions         │
 └─────────────────────────────┬───────────────────────────────┘
-│
-▼
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ STEP 2: Process Existing Files (Main Thread) │
-│ → Scans incoming_files/ for any files already there │
-│ → Validates each file → moves to accepted/ or rejected/ │
+│ STEP 2: Process Existing Files (Main Thread)               │
+│ → Scans incoming_files/ for any files already there        │
+│ → Validates each file → moves to accepted/ or rejected/    │
 └─────────────────────────────┬───────────────────────────────┘
-│
-▼
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ STEP 3: Start File Watcher (Background Thread) │
-│ → Uses watchdog to monitor incoming_files/ in real-time │
-│ → Any new file dropped triggers validation automatically │
+│ STEP 3: Start File Watcher (Background Thread)             │
+│ → Uses watchdog to monitor incoming_files/ in real-time    │
+│ → Any new file dropped triggers validation automatically   │
 └─────────────────────────────┬───────────────────────────────┘
-│
-▼
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ STEP 4: Interactive Summarizer Loop (Foreground) │
-│ → User types text → Agent summarizes → Displays result │
-│ → Meanwhile, file watcher runs silently in background │
-│ → Type 'quit' to exit │
+│ STEP 4: Interactive Summarizer Loop (Foreground)           │
+│ → User types text → Agent summarizes → Displays result     │
+│ → Meanwhile, file watcher runs silently in background      │
+│ → Type 'quit' to exit                                      │
 └─────────────────────────────────────────────────────────────┘
+```
+### File Validation Decision Flowchart:
 
-File Validation Decision Flowchart:
-
+```txt
 ┌────────────────┐
-│ File Received │
+│ File Received  │
 └───────┬────────┘
-│
-▼
+        │
+        ▼
 ┌───────────────────────┐
 │ Is extension allowed? │
 └─────┬───────────┬─────┘
-│ NO │ YES
-▼ ▼
-┌──────────┐ ┌──────────────────┐
-│ REJECT ❌ │ │ Is size ≤ 10MB? │
-└──────────┘ └────┬────────┬────┘
-│ NO │ YES
-▼ ▼
-┌──────────┐ ┌───────────────────┐
-│ REJECT ❌ │ │ Is file non-empty? │
-└──────────┘ └────┬────────┬─────┘
-│ NO │ YES
-▼ ▼
-┌──────────┐ ┌────────────────────┐
-│ REJECT ❌ │ │ Contains vulgar? │
-└──────────┘ └────┬────────┬──────┘
-│ YES │ NO
-▼ ▼
-┌──────────┐ ┌─────────────────┐
-│ REJECT ❌ │ │ Contains spam? │
-└──────────┘ └───┬────────┬────┘
-│ YES │ NO
-▼ ▼
-┌──────────┐ ┌────────────────┐
-│ REJECT ❌ │ │ Format checks │
-└──────────┘ │ pass? (JSON/ │
-│ CSV valid?) │
-└──┬────────┬───┘
-│ NO │ YES
-▼ ▼
-┌──────────┐ ┌──────────┐
-│ REJECT ❌ │ │ ACCEPT ✅ │
-└──────────┘ └──────────┘
+      │ NO        │ YES
+      ▼            ▼
+┌──────────┐   ┌──────────────────┐
+│ REJECT ❌ │   │ Is size ≤ 10MB? │
+└──────────┘   └────┬────────┬────┘
+                    │ NO     │ YES
+                    ▼         ▼
+               ┌──────────┐ ┌───────────────────┐
+               │ REJECT ❌ │ │ Is file non-empty? │
+               └──────────┘ └────┬────────┬─────┘
+                                 │ NO     │ YES
+                                 ▼         ▼
+                            ┌──────────┐ ┌────────────────────┐
+                            │ REJECT ❌ │ │ Contains vulgar?   │
+                            └──────────┘ └────┬────────┬──────┘
+                                              │ YES    │ NO
+                                              ▼         ▼
+                                         ┌──────────┐ ┌─────────────────┐
+                                         │ REJECT ❌ │ │ Contains spam? │
+                                         └──────────┘ └───┬────────┬────┘
+                                                           │ YES   │ NO
+                                                           ▼        ▼
+                                                      ┌──────────┐ ┌────────────────┐
+                                                      │ REJECT ❌ │ │ Format checks │
+                                                      └──────────┘ │ pass?          │
+                                                                   │ (JSON / CSV)  │
+                                                                   └──┬────────┬───┘
+                                                                      │ NO     │ YES
+                                                                      ▼         ▼
+                                                                 ┌──────────┐ ┌──────────┐
+                                                                 │ REJECT ❌ │ │ ACCEPT ✅ │
+                                                                 └──────────┘ └──────────┘
+```
 
-Dual-Task Concurrency:
+## Dual-Task Concurrency
 
+```txt
 TIME ──────────────────────────────────────────────────────────────►
 
 FOREGROUND (Main Thread):
-┌──────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────┐
-│ Init │ │ User types │ │ User types │ │ User types │ │ Quit │
-│ Agent │ │ text #1 │ │ text #2 │ │ text #3 │ │ │
-└──────────┘ └────────────┘ └────────────┘ └────────────┘ └──────┘
+
+┌──────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────┐
+│  Init    │  │ User types │  │ User types │  │ User types │  │ Quit │
+│  Agent   │  │  text #1   │  │  text #2   │  │  text #3   │  │      │
+└──────────┘  └────────────┘  └────────────┘  └────────────┘  └──────┘
+
 
 BACKGROUND (Daemon Thread):
+
 ┌──────────────────────────────────────────────────────────────────┐
-│ Watching incoming_files/ ... file1 detected → validate → move │
-│ ... file2 detected → validate → move ... (continuous) │
+│ Watching incoming_files/ ... file1 detected → validate → move  │
+│ ... file2 detected → validate → move ... (continuous)          │
 └──────────────────────────────────────────────────────────────────┘
+```
 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
-8. SOLID Principles Implementation
+## 8. SOLID Principles Implementation
 
-What is SOLID?
+### What is SOLID?
 
+```txt
 ┌───────────────────────────────┬────────────────────────────────────────────────┐
-│ Principle │ Meaning │
+│ Principle                     │ Meaning                                        │
 ├───────────────────────────────┼────────────────────────────────────────────────┤
-│ S — Single Responsibility │ Each class does ONE thing only │
+│ S — Single Responsibility     │ Each class does ONE thing only                 │
 ├───────────────────────────────┼────────────────────────────────────────────────┤
-│ O — Open/Closed │ Add features without modifying existing code │
+│ O — Open/Closed               │ Add features without modifying existing code   │
 ├───────────────────────────────┼────────────────────────────────────────────────┤
-│ L — Liskov Substitution │ Subtypes work wherever base types are expected │
+│ L — Liskov Substitution       │ Subtypes work wherever base types are expected │
 ├───────────────────────────────┼────────────────────────────────────────────────┤
-│ I — Interface Segregation │ Small, focused interfaces (not bloated ones) │
+│ I — Interface Segregation     │ Small, focused interfaces                      │
+│                               │ (not bloated ones)                             │
 ├───────────────────────────────┼────────────────────────────────────────────────┤
-│ D — Dependency Inversion │ Depend on abstractions, not concrete classes │
+│ D — Dependency Inversion      │ Depend on abstractions, not concrete classes   │
 └───────────────────────────────┴────────────────────────────────────────────────┘
+```
 
-How I Applied Each:
+---
 
-S — Single Responsibility:
+## How I Applied Each
 
-BEFORE: FileValidator had 7 responsibilities (extension + size + content + JSON + CSV + ...)
-AFTER: Each rule is its own class:
+### S — Single Responsibility
+
+BEFORE:
+- FileValidator had 7 responsibilities
+  (extension + size + content + JSON + CSV + ...)
+
+AFTER:
 - ExtensionRule → only checks extensions
 - SizeRule → only checks size
 - VulgarContentRule → only checks bad words
@@ -335,101 +352,207 @@ AFTER: Each rule is its own class:
 - JsonValidationRule → only validates JSON
 - CsvValidationRule → only validates CSV
 
-O — Open/Closed:
+---
 
+### O — Open/Closed
+
+```python
 # BEFORE: Adding a rule meant editing validate_file() method
+
 # AFTER: Just create a new class and inject it:
 
 class MyNewRule(ValidationRule):
-def can_apply(self, file_path): return True
-def validate(self, file_path, content, config):
-return ["reason"] if "bad" in content else []
 
-validator = FileValidator(rules=[ExtensionRule(), SizeRule(), MyNewRule()])
+    def can_apply(self, file_path):
+        return True
+
+    def validate(self, file_path, content, config):
+        return ["reason"] if "bad" in content else []
+
+
+validator = FileValidator(
+    rules=[
+        ExtensionRule(),
+        SizeRule(),
+        MyNewRule()
+    ]
+)
+
 # ↑ No existing code was modified!
+```
 
-L — Liskov Substitution:
+---
 
+### L — Liskov Substitution
+
+```python
 # Any class implementing BaseAgent can replace SummarizerAgent:
+
 class TranslatorAgent(BaseAgent):
-def initialize(self): ...
-def execute(self, text): ...
-def cleanup(self): ...
 
-# main.py doesn't care which agent it gets — they're interchangeable
+    def initialize(self):
+        ...
 
-I — Interface Segregation:
+    def execute(self, text):
+        ...
 
+    def cleanup(self):
+        ...
+
+
+# main.py doesn't care which agent it gets
+# — they're interchangeable
+```
+
+---
+
+### I — Interface Segregation
+
+```python
 # BaseAgent has ONLY 3 methods (minimal interface):
+
 class BaseAgent(ABC):
-def initialize(self) -> bool: ...
-def execute(self, input_text: str) -> str: ...
-def cleanup(self): ...
+
+    def initialize(self) -> bool:
+        ...
+
+    def execute(self, input_text: str) -> str:
+        ...
+
+    def cleanup(self):
+        ...
+
 
 # ValidationRule has ONLY 2 methods:
+
 class ValidationRule(ABC):
-def validate(self, file_path, content, config) -> list[str]: ...
-def can_apply(self, file_path) -> bool: ...
 
-D — Dependency Inversion:
+    def validate(self, file_path, content, config) -> list[str]:
+        ...
 
+    def can_apply(self, file_path) -> bool:
+        ...
+```
+
+---
+
+### D — Dependency Inversion
+
+```python
 # BEFORE: FileWatcher hardcoded its dependency
+
 class FileWatcher:
-def __init__(self):
-self.validator = FileValidator() # ← tightly coupled!
+
+    def __init__(self):
+        self.validator = FileValidator()   # ← tightly coupled!
+
 
 # AFTER: Dependencies are injected
+
 class FileWatcher:
-def __init__(self, validator=None, processor=None):
-self.validator = validator or FileValidator() # ← injected!
-self.processor = processor or FileProcessor() # ← injected!
 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    def __init__(self, validator=None, processor=None):
 
-9. Demo Results
+        self.validator = validator or FileValidator()
+        self.processor = processor or FileProcessor()
+```
+
+---
+
+## 9. Demo Results
 
 When running with test files:
 
-✅ ACCEPTED: hello.txt (clean text, proper extension)
-✅ ACCEPTED: code.py (valid Python file)
-❌ REJECTED: bad.exe (blocked extension .exe)
-❌ REJECTED: spam.txt (contains "click here to win free money")
-❌ REJECTED: vulgar.md (contains inappropriate language)
-❌ REJECTED: broken.json (malformed JSON)
-❌ REJECTED: incomplete.json (missing required fields)
-❌ REJECTED: missing.csv (empty cells in data)
+```txt
+✅ ACCEPTED: hello.txt
+   → clean text, proper extension
 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+✅ ACCEPTED: code.py
+   → valid Python file
 
-10. What I Learned
+❌ REJECTED: bad.exe
+   → blocked extension .exe
 
-1. AI Agent Architecture — How agents are created, given instructions, and communicate through threads/messages on Azure AI Agent Service
-2. Dual-task Pattern — Running foreground (interactive) and background (autonomous) work simultaneously using threading
-3. Rule-based Systems — How to build configurable, extensible validation pipelines
-4. Race Conditions — Learned about Windows filesystem timing issues with watchdog and how to handle them
-5. SOLID Principles — Practical application of all 5 principles in a real project
-6. Dependency Injection — How to make classes testable and loosely coupled
-7. Azure SDK — Working with azure-ai-projects, azure-identity, DefaultAzureCredential
+❌ REJECTED: spam.txt
+   → contains "click here to win free money"
 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+❌ REJECTED: vulgar.md
+   → contains inappropriate language
 
-11. Git Commit History
+❌ REJECTED: broken.json
+   → malformed JSON
 
+❌ REJECTED: incomplete.json
+   → missing required fields
+
+❌ REJECTED: missing.csv
+   → empty cells in data
+```
+
+---
+
+## 10. What I Learned
+
+1. AI Agent Architecture
+   → How agents are created, given instructions,
+     and communicate through threads/messages
+     on Azure AI Agent Service
+
+2. Dual-task Pattern
+   → Running foreground (interactive) and
+     background (autonomous) work simultaneously
+     using threading
+
+3. Rule-based Systems
+   → How to build configurable,
+     extensible validation pipelines
+
+4. Race Conditions
+   → Learned about Windows filesystem timing issues
+     with watchdog and how to handle them
+
+5. SOLID Principles
+   → Practical application of all 5 principles
+     in a real project
+
+6. Dependency Injection
+   → How to make classes testable
+     and loosely coupled
+
+7. Azure SDK
+   → Working with:
+     - azure-ai-projects
+     - azure-identity
+     - DefaultAzureCredential
+
+---
+
+## 11. Git Commit History
+
+```txt
 79a2d2e Add SOLID.md documentation and update README
 2eac258 Refactor codebase to follow SOLID principles
 4b4c645 Fix file watcher race condition on Windows
 d8d0f33 Add workflow.md with architecture docs and flowcharts
 f17ea06 Initial commit: Skeleton Agent with dual-task architecture
+```
 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
-12. Next Steps / Pending
+## 12. Next Steps / Pending
 
-- [ ] Get Azure AI Foundry connection string from manager (need Contributor access or shared project)
-- [ ] Test with real Azure AI Agent Service (currently in mock mode)
-- [ ] Add more validation rules (filename checks, encoding detection)
+- [ ] Get Azure AI Foundry connection string from manager
+      (need Contributor access or shared project)
+
+- [ ] Test with real Azure AI Agent Service
+      (currently in mock mode)
+
+- [ ] Add more validation rules
+      (filename checks, encoding detection)
+
 - [ ] Add REST API for file submission
-- [ ] Integrate with Microsoft Agency for multi-agent orchestration
 
+- [ ] Integrate with Microsoft Agency
+      for multi-agent orchestration
 
 ---
