@@ -30,21 +30,23 @@ My manager asked me to build a **"Hello World" style AI Agent** as a learning ex
 
 ### Architecture Decision:
 
+# Architecture Decision
 
+```txt
 ┌────────────────────────────────────────────────────────┐
-│ SKELETON AGENT │
+│                    SKELETON AGENT                     │
 ├─────────────────────┬──────────────────────────────────┤
-│ PRIMARY WORK │ SECONDARY WORK (Background) │
-│ (Foreground) │ │
-│ │ │
-│ Text Summarizer │ File Anomaly Detector │
-│ via Azure AI │ (Rule-based validation) │
-│ Agent Service │ │
-│ │ Watches incoming_files/ │
-│ User types text │ Validates against rules │
-│ Agent summarizes │ Moves to accepted/rejected │
+│ PRIMARY WORK        │ SECONDARY WORK (Background)     │
+│ (Foreground)        │                                  │
+│                     │                                  │
+│ Text Summarizer     │ File Anomaly Detector            │
+│ via Azure AI        │ (Rule-based validation)          │
+│ Agent Service       │                                  │
+│                     │ Watches incoming_files/          │
+│ User types text     │ Validates against rules          │
+│ Agent summarizes    │ Moves to accepted/rejected       │
 └─────────────────────┴──────────────────────────────────┘
-
+```
 
 ### Why This Design?
 
@@ -60,6 +62,8 @@ My manager asked me to build a **"Hello World" style AI Agent** as a learning ex
 
 ### Project Structure:
 
+
+```txt
 
 skeleton_agent/
 ├── main.py → Entry point, orchestrates both tasks
@@ -89,6 +93,7 @@ skeleton_agent/
 └── tests/
 └── test_file_validator.py → 13 unit tests
 
+```
 
 ### Key Files Explained:
 
